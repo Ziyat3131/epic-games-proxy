@@ -1,4 +1,3 @@
-// api/free-games.js
 import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
@@ -53,53 +52,85 @@ function normalizeGame(game) {
   const title = game?.title ?? '';
   const description = game?.description ?? '';
   const image = game?.keyImages?.[0]?.url || '';
+
+  // Slug kaynakları
   const urlSlug = game?.urlSlug || '';
   const productSlugRaw = game?.productSlug || '';
-  const pageSlug = game?.catalogNs?.mappings?.[0]?.pageSlug || '';
+  const mappings = Array.isArray(game?.catalogNs?.mappings)
+    ? game.catalogNs.mappings
+    : [];
 
-  const storeUrl = buildStoreUrl({ productSlugRaw, pageSlug, urlSlug });
+  // mapping’lerden pageSlug bul (tercihen productHome)
+  const mapping = mappings.find(m => m.pageType === 'productHome') || mappings[0] || {};
+  const pageSlug = mapping.pageSlug || '';
 
-  return { title, description, image, urlSlug, storeUrl };
+  const { storeUrl, searchUrl } = buildUrls({
+    title,
+    productSlugRaw,
+    pageSlug,
+    urlSlug,
+  });
+
+  return { title, description, image, urlSlug, storeUrl, searchUrl };
 }
 
-function buildStoreUrl({ productSlugRaw, pageSlug, urlSlug }) {
+function buildUrls({ title, productSlugRaw, pageSlug, urlSlug }) {
   const base = 'https://store.epicgames.com';
   const locale = 'en-US';
-  const clean = (s) => (s || '').replace(/^\/+/, '').replace(/\s+/g, '');
+
+  const clean = (s) =>
+    (s || '')
+      .trim()
+      .replace(/^\/+/, '')          // baştaki / temizle
+      .replace(/\?.*$/, '')         // query string at
+      .replace(/\/home$/, '');      // /home son ekini at
+
   const hasLocale = (s) => /^[a-z]{2}-[A-Z]{2}\//.test(s || '');
+  const isFullUrl = (s) => /^https?:\/\//i.test(s || '');
 
-  const productSlug = clean(productSlugRaw);
-  const page = clean(pageSlug);
-  const url = clean(urlSlug);
-
-  // 1) productSlug varsa
-  if (productSlug) {
-    if (hasLocale(productSlug)) {
-      // zaten locale içeriyor → direkt kullan
-      return `${base}/${productSlug}`;
-    }
-    if (productSlug.startsWith('p/') || productSlug.startsWith('bundles/')) {
-      return `${base}/${locale}/${productSlug}`;
-    }
-    return `${base}/${locale}/p/${productSlug}`;
+  // Önce productSlug
+  let p = clean(productSlugRaw);
+  // Bazı productSlug'lar komple URL gelebilir:
+  if (isFullUrl(p)) {
+    try {
+      const u = new URL(p);
+      p = clean(u.pathname);
+      if (hasLocale(p)) return { storeUrl: `${base}/${p}`, searchUrl: makeSearchUrl(base, locale, title) };
+    } catch (_) {}
   }
 
-  // 2) pageSlug varsa
+  if (p) {
+    if (hasLocale(p)) {
+      return { storeUrl: `${base}/${p}`, searchUrl: makeSearchUrl(base, locale, title) };
+    }
+    if (p.startsWith('p/') || p.startsWith('bundles/')) {
+      return { storeUrl: `${base}/${locale}/${p}`, searchUrl: makeSearchUrl(base, locale, title) };
+    }
+    return { storeUrl: `${base}/${locale}/p/${p}`, searchUrl: makeSearchUrl(base, locale, title) };
+  }
+
+  // Sonra pageSlug
+  const page = clean(pageSlug);
   if (page) {
     if (hasLocale(page)) {
-      return `${base}/${page}`;
+      return { storeUrl: `${base}/${page}`, searchUrl: makeSearchUrl(base, locale, title) };
     }
-    return `${base}/${locale}/p/${page}`;
+    return { storeUrl: `${base}/${locale}/p/${page}`, searchUrl: makeSearchUrl(base, locale, title) };
   }
 
-  // 3) urlSlug varsa
+  // Son çare urlSlug
+  const url = clean(urlSlug);
   if (url) {
     if (hasLocale(url)) {
-      return `${base}/${url}`;
+      return { storeUrl: `${base}/${url}`, searchUrl: makeSearchUrl(base, locale, title) };
     }
-    return `${base}/${locale}/p/${url}`;
+    return { storeUrl: `${base}/${locale}/p/${url}`, searchUrl: makeSearchUrl(base, locale, title) };
   }
 
-  // 4) fallback → mağaza ana sayfası
-  return `${base}/${locale}/`;
+  // Hiçbiri yoksa arama sayfası
+  return { storeUrl: `${base}/${locale}/search?q=${encodeURIComponent(title)}`, searchUrl: makeSearchUrl(base, locale, title) };
+}
+
+function makeSearchUrl(base, locale, title) {
+  return `${base}/${locale}/search?q=${encodeURIComponent(title || '')}`;
 }
