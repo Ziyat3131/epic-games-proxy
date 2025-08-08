@@ -65,19 +65,41 @@ function normalizeGame(game) {
 function buildStoreUrl({ productSlugRaw, pageSlug, urlSlug }) {
   const base = 'https://store.epicgames.com';
   const locale = 'en-US';
-  const clean = (s) => (s || '').replace(/^\/+/, '');
+  const clean = (s) => (s || '').replace(/^\/+/, '').replace(/\s+/g, '');
+  const hasLocale = (s) => /^[a-z]{2}-[A-Z]{2}\//.test(s || '');
 
   const productSlug = clean(productSlugRaw);
   const page = clean(pageSlug);
   const url = clean(urlSlug);
 
+  // 1) productSlug varsa
   if (productSlug) {
+    if (hasLocale(productSlug)) {
+      // zaten locale içeriyor → direkt kullan
+      return `${base}/${productSlug}`;
+    }
     if (productSlug.startsWith('p/') || productSlug.startsWith('bundles/')) {
       return `${base}/${locale}/${productSlug}`;
     }
     return `${base}/${locale}/p/${productSlug}`;
   }
-  if (page) return `${base}/${locale}/p/${page}`;
-  if (url) return `${base}/${locale}/p/${url}`;
+
+  // 2) pageSlug varsa
+  if (page) {
+    if (hasLocale(page)) {
+      return `${base}/${page}`;
+    }
+    return `${base}/${locale}/p/${page}`;
+  }
+
+  // 3) urlSlug varsa
+  if (url) {
+    if (hasLocale(url)) {
+      return `${base}/${url}`;
+    }
+    return `${base}/${locale}/p/${url}`;
+  }
+
+  // 4) fallback → mağaza ana sayfası
   return `${base}/${locale}/`;
 }
